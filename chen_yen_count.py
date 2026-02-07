@@ -5,54 +5,44 @@ import os
 st.set_page_config(page_title="商品自動分組系統", layout="wide")
 
 
-# --- 讀取產品資料庫 (增加錯誤檢查) ---
+# --- 1. 讀取產品資料庫 ---
 @st.cache_data
 def load_db():
-    # 這裡請改成你目前在 GitHub 上真實的檔名
+    # 這裡預設讀取 products.xlsx，請確保 GitHub 上檔名一致
     file_path = "丞燕產品表新版.xlsx"
-
     if os.path.exists(file_path):
         try:
+            # 讀取 A-H 欄
             df = pd.read_excel(file_path)
-            df.columns = [c.strip() for c in df.columns]
+            # 清除欄位名稱空格
+            df.columns = [str(c).strip() for c in df.columns]
             return df, "success"
         except Exception as e:
-            return None, f"讀取錯誤: {str(e)}"
+            return None, f"讀取失敗: {e}"
     else:
-        return None, f"找不到檔案: {file_path}"
+        return None, "找不到 products.xlsx 檔案"
 
 
 product_db, status = load_db()
 
-# --- 介面引導 ---
-if status != "success":
-    st.error(f"⚠️ {status}")
-    st.info("請確認你的 GitHub 儲存庫中是否有上傳產品表，且檔名正確。")
-    st.stop()  # 停止執行後面的程式，避免崩潰
 
-
-# --- 2. 核心分組演算法 ---
+# --- 核心分組演算法 ---
 def solve_logic(items, target):
-    # 複製一份清單避免影響原始資料
     items_copy = list(items)
     items_copy.sort(key=lambda x: x['value'], reverse=True)
     groups = []
-
     while items_copy:
-        current_group = []
-        current_sum = 0
+        current_group, current_sum = [], 0
         first_item = items_copy.pop(0)
         current_group.append(first_item)
         current_sum += first_item['value']
 
         while current_sum < target and items_copy:
-            best_idx = -1
-            min_diff = float('inf')
+            best_idx, min_diff = -1, float('inf')
             for i, item in enumerate(items_copy):
                 diff = abs((current_sum + item['value']) - target)
                 if diff < min_diff:
-                    min_diff = diff
-                    best_idx = i
+                    min_diff, best_idx = diff, i
             best_item = items_copy.pop(best_idx)
             current_group.append(best_item)
             current_sum += best_item['value']
@@ -63,95 +53,100 @@ def solve_logic(items, target):
     return pd.DataFrame(groups)
 
 
-# --- 3. 網頁介面 ---
-st.title("⚖️ 丞燕商品自動分組系統")
+# --- 2. 介面邏輯 ---
+if status != "success":
+    st.error(status)
+    st.stop()
 
-choice = st.sidebar.radio("請選擇輸入方式", ["Excel 上傳（外部檔案）", "手動輸入項目（讀取產品表）"])
+st.title("⚖️ 產品積分自動分組系統")
 
-ready_to_process = []
+choice = st.sidebar.radio("請選擇輸入方式", ["手動輸入項目 (連動選單)", "Excel 檔案整批上傳"])
 
-# --- 模式 A：Excel 上傳 ---
-if choice == "Excel 上傳（外部檔案）":
-    st.info("請上傳符合格式（A大項, B貨號, C品名, D數量, E積分...）的 Excel")
-    file = st.file_uploader("請上傳 Excel", type=["xlsx", "csv"])
-    if file:
-        df_upload = pd.read_excel(file) if "xlsx" in file.name else pd.read_csv(file)
-        for _, row in df_upload.iterrows():
-            try:
-                name = str(row.iloc[2])  # C品名
-                count = int(row.iloc[3])  # D數量
-                value = float(row.iloc[4])  # E積分
-                for _ in range(count):
-                    ready_to_process.append({"name": name, "value": value})
-            except:
-                continue
-        st.success(f"已從檔案載入 {len(ready_to_process)} 筆項目")
+# 存放最終待計算清單
+if 'final_list' not in st.session_state:
+    st.session_state.final_list = []
 
-# --- 模式 B：手動輸入（連動選單） ---
-else:
-    if 'temp_list' not in st.session_state:
-        st.session_state.temp_list = []
-
+# --- 模式一：連動手動輸入 ---
+if choice == "手動輸入項目 (連動選單)":
     col1, col2 = st.columns(2)
 
     with col1:
-        st.subheader("方式一：選單模式")
-        # 1. 選擇大項 (從產品表 A 欄去重)
-        categories = product_db.iloc[:, 0].unique().tolist()
-        selected_cat = st.selectbox("1. 選擇大項", categories)
+        st.subheader("方式 A：階層選單")
+        # 取得所有唯一的大項 (第一欄)
+        all_categories = product_db.iloc[:, 0].dropna().unique().tolist()
+        selected_cat = st.selectbox("1. 選擇大項 (例如: 千禧)", all_categories)
 
-        # 2. 根據大項篩選品項 (從產品表 C 欄篩選)
-        sub_df = product_db[product_db.iloc[:, 0] == selected_cat]
-        selected_name = st.selectbox("2. 選擇品項", sub_df.iloc[:, 2].unique().tolist())
+        # 根據大項過濾出品名 (第三欄)
+        filtered_df = product_db[product_db.iloc[:, 0] == selected_cat]
+        all_products = filtered_df.iloc[:, 2].dropna().unique().tolist()
+        selected_prod = st.selectbox(f"2. 選擇 {selected_cat} 內的品名", all_products)
 
-        # 取得該品項積分 (E 欄)
-        item_score = sub_df[sub_df.iloc[:, 2] == selected_name].iloc[0, 4]
-        st.write(f"ℹ️ 單件積分：{item_score}")
+        # 取得該品名對應的積分 (第五欄)
+        item_data = filtered_df[filtered_df.iloc[:, 2] == selected_prod].iloc[0]
+        points = float(item_data.iloc[4])
 
-        m_qty = st.number_input("3. 數量", min_value=1, step=1, key="qty_menu")
+        qty = st.number_input("3. 輸入數量", min_value=1, value=1, step=1)
 
-        if st.button("加入清單 (選單)"):
-            for _ in range(m_qty):
-                st.session_state.temp_list.append({"name": selected_name, "value": float(item_score)})
+        if st.button("➕ 加入選擇項目"):
+            for _ in range(qty):
+                st.session_state.final_list.append({"name": selected_prod, "value": points})
+            st.toast(f"已加入 {qty} 個 {selected_prod}")
 
     with col2:
-        st.subheader("方式二：貨號搜尋")
-        code_input = st.text_input("輸入貨號 (如: 100100)")
-        m_qty_code = st.number_input("數量", min_value=1, step=1, key="qty_code")
+        st.subheader("方式 B：貨號搜尋")
+        code_input = st.text_input("輸入貨號 (例如: 100100)")
+        qty_b = st.number_input("數量 ", min_value=1, value=1, step=1)
 
-        if st.button("加入清單 (貨號)"):
-            # 搜尋 B 欄貨號
-            matched = product_db[product_db.iloc[:, 1].astype(str) == str(code_input)]
-            if not matched.empty:
-                name_by_code = matched.iloc[0, 2]
-                score_by_code = matched.iloc[0, 4]
-                for _ in range(m_qty_code):
-                    st.session_state.temp_list.append({"name": name_by_code, "value": float(score_by_code)})
-                st.toast(f"已加入: {name_by_code}")
+        if st.button("➕ 貨號快速加入"):
+            # 貨號比對 (第二欄)
+            match = product_db[product_db.iloc[:, 1].astype(str) == str(code_input)]
+            if not match.empty:
+                prod_name = match.iloc[0, 2]
+                prod_pts = float(match.iloc[0, 4])
+                for _ in range(qty_b):
+                    st.session_state.final_list.append({"name": prod_name, "value": prod_pts})
+                st.toast(f"已加入 {qty_b} 個 {prod_name}")
             else:
-                st.error("找不到該貨號，請檢查輸入是否正確。")
+                st.error("找不到此貨號，請檢查 products.xlsx")
+
+# --- 模式二：外部 Excel 上傳 ---
+else:
+    uploaded_file = st.file_uploader("上傳要計算的訂單 Excel (A-H 格式)", type=["xlsx"])
+    if uploaded_file:
+        df_up = pd.read_excel(uploaded_file)
+        if st.button("📥 載入檔案數據"):
+            new_items = []
+            for _, row in df_up.iterrows():
+                try:
+                    name, count, pts = str(row.iloc[2]), int(row.iloc[3]), float(row.iloc[4])
+                    for _ in range(count):
+                        new_items.append({"name": name, "value": pts})
+                except:
+                    continue
+            st.session_state.final_list = new_items
+            st.success(f"成功載入 {len(new_items)} 個品項")
+
+# --- 3. 顯示結果與計算 ---
+st.divider()
+if st.session_state.final_list:
+    st.subheader("📋 目前清單內容")
+    temp_df = pd.DataFrame(st.session_state.final_list)
+    # 統計顯示
+    summary = temp_df.groupby('name').agg({'value': 'first', 'name': 'count'}).rename(
+        columns={'name': '數量', 'value': '單件積分'})
+    st.table(summary)
+
+    if st.button("🗑️ 清空重選"):
+        st.session_state.final_list = []
+        st.rerun()
 
     st.divider()
-    st.subheader("📋 目前待分配清單")
-    if st.session_state.temp_list:
-        summary_df = pd.DataFrame(st.session_state.temp_list)
-        # 顯示統計方便查看
-        display_df = summary_df.groupby('name').agg({'value': 'first', 'name': 'count'}).rename(
-            columns={'name': '數量'})
-        st.table(display_df)
-        if st.button("🗑️ 清空所有項目"):
-            st.session_state.temp_list = []
-            st.rerun()
-    ready_to_process = st.session_state.temp_list
+    target_val = st.number_input("🎯 設定分組目標積分 (例如: 12000)", value=12000, step=100)
 
-# --- 4. 分組執行 ---
-if ready_to_process:
-    st.divider()
-    target = st.number_input("幾分一組？ (例如：12000)", value=12000)
     if st.button("🚀 開始自動分組"):
-        results = solve_logic(ready_to_process, target)
-        st.success(f"分組完成！共分成 {len(results)} 組")
-        st.dataframe(results, use_container_width=True)
+        final_res = solve_logic(st.session_state.final_list, target_val)
+        st.success(f"分組完成！共計 {len(final_res)} 組")
+        st.dataframe(final_res, use_container_width=True)
 
-        csv = results.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("📥 下載分組結果 (CSV)", data=csv, file_name="分組結果.csv")
+        csv = final_res.to_csv(index=False).encode('utf-8-sig')
+        st.download_button("📥 下載分組結果 (Excel/CSV)", data=csv, file_name="分組結果.csv")
