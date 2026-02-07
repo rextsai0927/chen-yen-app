@@ -1,24 +1,34 @@
 import streamlit as st
 import pandas as pd
+import os
 
 st.set_page_config(page_title="商品自動分組系統", layout="wide")
 
 
-# --- 1. 讀取產品資料庫 ---
-@st.cache_data  # 這樣才不會每次按按鈕都重新讀取檔案，速度會快很多
+# --- 讀取產品資料庫 (增加錯誤檢查) ---
+@st.cache_data
 def load_db():
-    # 讀取你上傳的產品表
-    df = pd.read_csv("丞燕產品表新版.xlsx")
-    # 確保欄位名稱乾淨
-    df.columns = [c.strip() for c in df.columns]
-    return df
+    # 這裡請改成你目前在 GitHub 上真實的檔名
+    file_path = "丞燕產品表新版.xlsx"
+
+    if os.path.exists(file_path):
+        try:
+            df = pd.read_excel(file_path)
+            df.columns = [c.strip() for c in df.columns]
+            return df, "success"
+        except Exception as e:
+            return None, f"讀取錯誤: {str(e)}"
+    else:
+        return None, f"找不到檔案: {file_path}"
 
 
-try:
-    product_db = load_db()
-except:
-    st.error("找不到產品表 CSV 檔案，請確認檔案名稱是否正確。")
-    product_db = pd.DataFrame()
+product_db, status = load_db()
+
+# --- 介面引導 ---
+if status != "success":
+    st.error(f"⚠️ {status}")
+    st.info("請確認你的 GitHub 儲存庫中是否有上傳產品表，且檔名正確。")
+    st.stop()  # 停止執行後面的程式，避免崩潰
 
 
 # --- 2. 核心分組演算法 ---
