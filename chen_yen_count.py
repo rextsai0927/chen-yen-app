@@ -8,7 +8,7 @@ st.set_page_config(page_title="商品自動分組系統", layout="wide")
 @st.cache_data  # 這樣才不會每次按按鈕都重新讀取檔案，速度會快很多
 def load_db():
     # 讀取你上傳的產品表
-    df = pd.read_csv("丞燕產品表新版.xlsx - 工作表1.csv")
+    df = pd.read_csv("丞燕產品表新版.xlsx")
     # 確保欄位名稱乾淨
     df.columns = [c.strip() for c in df.columns]
     return df
