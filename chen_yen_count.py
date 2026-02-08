@@ -8,7 +8,7 @@ st.set_page_config(page_title="商品自動分組系統", layout="wide")
 # --- 1. 讀取產品資料庫 ---
 @st.cache_data
 def load_db():
-    file_path = "products.xlsx"
+    file_path = "丞燕產品表新版.xlsx"
     if os.path.exists(file_path):
         try:
             df = pd.read_excel(file_path)
