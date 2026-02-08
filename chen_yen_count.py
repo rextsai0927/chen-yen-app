@@ -126,7 +126,7 @@ else:
             for _, row in df_up.iterrows():
                 try:
                     # C品名(2), D數量(3), E積分(4), G價格(6)
-                    n, q, pt, pr = str(row.iloc[2]), int(row.iloc[3]), float(row.iloc[4]), float(row.iloc[6])
+                    n, q, pt, pr = str(row.iloc[3]), int(row.iloc[4]), float(row.iloc[5]), float(row.iloc[7])
                     for _ in range(q):
                         new_items.append({"name": n, "points": pt, "price": pr})
                 except:
